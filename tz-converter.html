@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Next Deployment Window</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: transparent;
+    padding: 0.25rem 0;
+  }
+  .window {
+    font-size: 15px;
+    color: #444;
+  }
+  .window strong { color: #111; font-weight: 600; }
+  .badge {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #dbeafe;
+    color: #1e40af;
+    margin-left: 5px;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+  }
+  .badge.dst { background: #dcfce7; color: #166534; }
+</style>
+</head>
+<body>
+<div class="window" id="out">Loading…</div>
+<script>
+const pad = n => String(n).padStart(2, '0');
+const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function ordinal(n) {
+  const v = n % 100;
+  return n + (['th','st','nd','rd'][(v-20)%10] || ['th','st','nd','rd'][v] || 'th');
+}
+
+function nextWeekday(target) {
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  const diff = (target - d.getDay() + 7) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function getOffsetMin(iana, dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: iana, hour: '2-digit', minute: '2-digit',
+    hour12: false, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(d);
+  const pts = {};
+  p.forEach(x => pts[x.type] = x.value);
+  const localMs = new Date(`${pts.year}-${pts.month}-${pts.day}T${pts.hour}:${pts.minute}:00`).getTime();
+  return Math.round((d.getTime() - localMs) / 60000);
+}
+
+function getTZAbbr(iana, dateStr) {
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: iana, timeZoneName: 'short'
+  }).formatToParts(new Date(dateStr + 'T12:00:00'));
+  return p.find(x => x.type === 'timeZoneName')?.value || '';
+}
+
+function applyOffset(hhmm, offsetMin) {
+  const [h, m] = hhmm.split(':').map(Number);
+  let total = h * 60 + m + offsetMin;
+  const dayShift = Math.floor(total / (24 * 60));
+  total = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  return { h: Math.floor(total / 60), m: total % 60, dayShift };
+}
+
+function run() {
+  const p     = new URLSearchParams(window.location.search);
+  const iana  = p.get('tz')    || 'America/Chicago';
+  const start = p.get('start') || '18:00';
+  const end   = p.get('end')   || '22:00';
+  const winDay = parseInt(p.get('day') ?? '6');   // 6 = Saturday
+
+  const baseDate = nextWeekday(winDay);
+  const dateStr  = `${baseDate.getFullYear()}-${pad(baseDate.getMonth()+1)}-${pad(baseDate.getDate())}`;
+
+  const off  = getOffsetMin(iana, dateStr);
+  const abbr = getTZAbbr(iana, dateStr);
+  const isDST = abbr.includes('D') || abbr === 'BST' || abbr === 'IST';
+
+  const s = applyOffset(start, off);
+  const e = applyOffset(end, off);
+
+  const startDate = new Date(baseDate); startDate.setDate(startDate.getDate() + s.dayShift);
+  const endDate   = new Date(baseDate); endDate.setDate(endDate.getDate()   + e.dayShift);
+
+  const sLabel = `${DAYS[startDate.getDay()]} ${MONTHS[startDate.getMonth()]} ${ordinal(startDate.getDate())}`;
+  const eLabel = endDate.toDateString() === startDate.toDateString() ? '' :
+    `${DAYS[endDate.getDay()]} ${MONTHS[endDate.getMonth()]} ${ordinal(endDate.getDate())} `;
+
+  document.getElementById('out').innerHTML =
+    `UTC <strong>${sLabel} ${pad(s.h)}:${pad(s.m)}</strong> to <strong>${eLabel}${pad(e.h)}:${pad(e.m)}</strong>`+
+    `<span class="badge${isDST?' dst':''}">${abbr}</span>`;
+}
+
+run();
+</script>
+</body>
+</html>
